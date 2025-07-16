@@ -87,6 +87,22 @@ class KnowledgeRetrievalNode(LLMNode):
             )
         query = variable.value
         variables = {"query": query}
+        
+        # extract dataset_ids from variable if provided # 如果变量中提供了dataset_ids，则从中提取出来
+        dataset_ids = node_data.dataset_ids
+        if node_data.dataset_ids_variable_selector:
+            print("1.dataset_ids_variable_selector: ", node_data.dataset_ids_variable_selector)
+            dataset_ids_variable = self.graph_runtime_state.variable_pool.get(node_data.dataset_ids_variable_selector)
+            if dataset_ids_variable:
+                if isinstance(dataset_ids_variable, StringSegment):
+                    # parse comma-separated string of dataset IDs # 解析以逗号分隔的数据集ID字符串
+                    dataset_ids = [id.strip() for id in dataset_ids_variable.value.split(",") if id.strip()]
+                elif isinstance(dataset_ids_variable, ArrayObjectSegment):
+                    # extract dataset IDs from array # 从数组中提取数据集ID
+                    dataset_ids = [str(item) for item in dataset_ids_variable.value if item]
+                variables["dataset_ids"] = dataset_ids
+                print("2.dataset_ids: ", dataset_ids)
+
         if not query:
             return NodeRunResult(
                 status=WorkflowNodeExecutionStatus.FAILED, inputs=variables, error="Query is required."
@@ -119,7 +135,8 @@ class KnowledgeRetrievalNode(LLMNode):
 
         # retrieve knowledge
         try:
-            results = self._fetch_dataset_retriever(node_data=node_data, query=query)
+            # results = self._fetch_dataset_retriever(node_data=node_data, query=query)
+            results = self._fetch_dataset_retriever(node_data=node_data, query=query, dataset_ids=dataset_ids)
             outputs = {"result": ArrayObjectSegment(value=results)}
             return NodeRunResult(
                 status=WorkflowNodeExecutionStatus.SUCCEEDED,
@@ -147,9 +164,12 @@ class KnowledgeRetrievalNode(LLMNode):
         finally:
             db.session.close()
 
-    def _fetch_dataset_retriever(self, node_data: KnowledgeRetrievalNodeData, query: str) -> list[dict[str, Any]]:
+    # def _fetch_dataset_retriever(self, node_data: KnowledgeRetrievalNodeData, query: str) -> list[dict[str, Any]]:
+    def _fetch_dataset_retriever(self, node_data: KnowledgeRetrievalNodeData, query: str, dataset_ids: Optional[list[str]] = None) -> list[dict[str, Any]]:
         available_datasets = []
-        dataset_ids = node_data.dataset_ids
+        # dataset_ids = node_data.dataset_ids
+        if dataset_ids is None or dataset_ids == []:
+            dataset_ids = node_data.dataset_ids
 
         # Subquery: Count the number of available documents for each dataset
         subquery = (
@@ -181,6 +201,12 @@ class KnowledgeRetrievalNode(LLMNode):
             if not dataset:
                 continue
             available_datasets.append(dataset)
+
+        # Auto-merge dataset retrieval configurations if using dataset_ids_variable_selector # 如果使用dataset_ids_variable_selector，则自动合并数据集检索配置
+        if (node_data.dataset_ids_variable_selector and available_datasets and 
+            getattr(node_data, 'auto_merge_dataset_configs', True)):
+            node_data = self._merge_dataset_retrieval_configs(node_data, available_datasets)
+        
         metadata_filter_document_ids, metadata_condition = self._get_metadata_filter_condition(
             [dataset.id for dataset in available_datasets], query, node_data
         )
@@ -568,6 +594,10 @@ class KnowledgeRetrievalNode(LLMNode):
         """
         variable_mapping = {}
         variable_mapping[node_id + ".query"] = node_data.query_variable_selector
+        if node_data.dataset_ids_variable_selector:
+            variable_mapping[node_id + ".dataset_ids"] = node_data.dataset_ids_variable_selector
+        if hasattr(node_data, 'dataset_source_mode'):
+            variable_mapping[node_id + ".dataset_source_mode"] = getattr(node_data, 'dataset_source_mode', 'manual')
         return variable_mapping
 
     def get_model_config(self, model: ModelConfig) -> tuple[ModelInstance, ModelConfigWithCredentialsEntity]:
@@ -673,3 +703,100 @@ class KnowledgeRetrievalNode(LLMNode):
 
         else:
             raise InvalidModelTypeError(f"Model mode {model_mode} not support.")
+        
+    def _merge_dataset_retrieval_configs(self, node_data: KnowledgeRetrievalNodeData, available_datasets: list[Dataset]) -> KnowledgeRetrievalNodeData:
+        """
+        Merge retrieval configurations from datasets when using dynamic dataset IDs.
+        This method analyzes the retrieval configurations stored in each dataset and
+        creates an optimal merged configuration for the knowledge retrieval node.
+        """
+        from copy import deepcopy
+        
+        # Create a copy of node_data to avoid modifying the original # 创建节点数据的副本以避免修改原始副本
+        merged_node_data = deepcopy(node_data)
+        
+        # Extract retrieval configurations from datasets # 从数据集中提取检索配置
+        dataset_configs = []
+        for dataset in available_datasets:
+            if dataset.retrieval_model:
+                dataset_configs.append(dataset.retrieval_model_dict)
+        
+        # If no dataset configs found, use current node configuration # 如果没有找到数据集配置，则使用当前节点配置
+        if not dataset_configs:
+            return merged_node_data
+        
+        # Determine the best retrieval mode based on dataset configurations # 根据数据集配置确定最佳检索模式
+        # Priority: multiple > single (multiple is more comprehensive) # 优先级：multiple > single（multiple更全面）
+        has_multiple_config = any(self._is_multiple_retrieval_config(config) for config in dataset_configs)
+        
+        if has_multiple_config:
+            # Merge multiple retrieval configurations # 合并多个检索配置
+            merged_node_data.retrieval_mode = "multiple"
+            merged_node_data.multiple_retrieval_config = self._merge_multiple_retrieval_configs(dataset_configs)
+            merged_node_data.single_retrieval_config = None
+        else:
+            # Use single retrieval configuration from first dataset # 使用第一个数据集的单检索配置
+            merged_node_data.retrieval_mode = "single"
+            merged_node_data.single_retrieval_config = self._create_single_retrieval_config(dataset_configs[0])
+            merged_node_data.multiple_retrieval_config = None
+        
+        return merged_node_data
+    
+    def _is_multiple_retrieval_config(self, config: dict) -> bool:
+        """Check if a dataset configuration is suitable for multiple retrieval mode."""
+        # Check if configuration has multiple retrieval specific fields # 检查配置是否具有多个检索特定字段
+        multiple_fields = ['search_method', 'reranking_enable', 'reranking_model', 'weights']
+        return any(field in config for field in multiple_fields)
+    
+    def _merge_multiple_retrieval_configs(self, dataset_configs: list[dict]) -> 'MultipleRetrievalConfig':
+        """Merge multiple retrieval configurations from datasets."""
+        from .entities import MultipleRetrievalConfig, RerankingModelConfig, WeightedScoreConfig, VectorSetting, KeywordSetting
+        
+        # Use the first config as base and merge others # 使用第一个配置作为基础并合并其他配置
+        base_config = dataset_configs[0]
+        
+        # Calculate average top_k # 计算平均top_k
+        top_k_values = [config.get('top_k', 2) for config in dataset_configs if config.get('top_k')]
+        avg_top_k = int(sum(top_k_values) / len(top_k_values)) if top_k_values else 2
+        
+        # Use minimum score_threshold for better recall # 使用最小score_threshold以获得更好的召回率
+        score_thresholds = [config.get('score_threshold', 0.0) for config in dataset_configs 
+                          if config.get('score_threshold_enabled', False)]
+        min_score_threshold = min(score_thresholds) if score_thresholds else None
+        
+        # Check if any dataset has reranking enabled # 检查是否有任何数据集启用了重新排名
+        reranking_enabled = any(config.get('reranking_enable', False) for config in dataset_configs)
+        
+        # Get reranking model from first dataset that has it # 从具有它的第一个数据集中获取重新排名模型
+        reranking_model = None
+        for config in dataset_configs:
+            if config.get('reranking_model') and config['reranking_model'].get('reranking_provider_name'):
+                reranking_model = RerankingModelConfig(
+                    provider=config['reranking_model']['reranking_provider_name'],
+                    model=config['reranking_model']['reranking_model_name']
+                )
+                break
+        
+        return MultipleRetrievalConfig(
+            top_k=avg_top_k,
+            score_threshold=min_score_threshold,
+            reranking_mode="reranking_model" if reranking_model else "weighted_score",
+            reranking_enable=reranking_enabled,
+            reranking_model=reranking_model,
+            weights=None  # Could be enhanced to merge weights from datasets # 可以增强以从数据集中合并权重
+        )
+    
+    def _create_single_retrieval_config(self, dataset_config: dict) -> 'SingleRetrievalConfig':
+        """Create single retrieval configuration from dataset config."""
+        from .entities import SingleRetrievalConfig, ModelConfig
+        
+        # Use default model config if not specified in dataset # 如果在数据集中未指定，则使用默认模型配置
+        # This could be enhanced to read model config from dataset # 这可以增强为从数据集读取模型配置
+        default_model = ModelConfig(
+            provider="openai",  # Default provider
+            name="gpt-3.5-turbo",  # Default model
+            mode="chat",
+            completion_params={}
+        )
+        
+        return SingleRetrievalConfig(model=default_model)
