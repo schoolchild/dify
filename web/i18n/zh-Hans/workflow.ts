@@ -467,6 +467,11 @@ const translation = {
     knowledgeRetrieval: {
       queryVariable: '查询变量',
       knowledge: '知识库',
+      manualDatasetSelection: '手动选择知识库',
+      variableDatasetSelection: '变量传递知识库',
+      datasetVariable: '知识库变量',
+      datasetVariableDesc: '选择包含知识库ID的变量（逗号分隔字符串或数组）',
+      autoMergeTooltip: '自动合并数据集配置',
       outputVars: {
         output: '召回的分段',
         content: '分段内容',
