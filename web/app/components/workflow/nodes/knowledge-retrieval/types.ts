@@ -98,9 +98,12 @@ export type MetadataFilteringConditions = {
 export type KnowledgeRetrievalNodeType = CommonNodeType & {
   query_variable_selector: ValueSelector
   dataset_ids: string[]
+  dataset_ids_variable_selector?: ValueSelector
+  dataset_source_mode: 'manual' | 'variable'
   retrieval_mode: RETRIEVE_TYPE
   multiple_retrieval_config?: MultipleRetrievalConfig
   single_retrieval_config?: SingleRetrievalConfig
+  auto_merge_dataset_configs?: boolean
   _datasets?: DataSet[]
   metadata_filtering_mode?: MetadataFilteringModeEnum
   metadata_filtering_conditions?: MetadataFilteringConditions
