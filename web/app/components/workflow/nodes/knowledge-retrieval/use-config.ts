@@ -72,6 +72,13 @@ const useConfig = (id: string, payload: KnowledgeRetrievalNodeType) => {
     setInputs(newInputs)
   }, [inputs, setInputs])
 
+  const handleDatasetIdsVarChange = useCallback((newVar: ValueSelector | string) => {
+    const newInputs = produce(inputs, (draft) => {
+      draft.dataset_ids_variable_selector = newVar as ValueSelector
+    })
+    setInputs(newInputs)
+  }, [inputs, setInputs])
+
   const {
     currentProvider,
     currentModel,
@@ -240,9 +247,39 @@ const useConfig = (id: string, payload: KnowledgeRetrievalNodeType) => {
 
     setInputs(produce(inputs, (draft) => {
       draft.query_variable_selector = query_variable_selector
+      // Set default dataset source mode if not set
+      if (!draft.dataset_source_mode)
+        draft.dataset_source_mode = 'manual'
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const handleDatasetSourceModeChange = useCallback((mode: 'manual' | 'variable') => {
+    const newInputs = produce(inputs, (draft) => {
+      draft.dataset_source_mode = mode
+      if (mode === 'variable') {
+        // Clear manual datasets when switching to variable mode
+        draft.dataset_ids = []
+        // Enable auto merge by default for variable mode
+        if (draft.auto_merge_dataset_configs === undefined)
+          draft.auto_merge_dataset_configs = true
+      }
+      else {
+        // Clear variable selector when switching to manual mode
+        draft.dataset_ids_variable_selector = undefined
+      }
+    })
+    setInputs(newInputs)
+    if (mode === 'manual')
+      setSelectedDatasets([])
+  }, [inputs, setInputs])
+
+  const handleAutoMergeConfigsChange = useCallback((enabled: boolean) => {
+    const newInputs = produce(inputs, (draft) => {
+      draft.auto_merge_dataset_configs = enabled
+    })
+    setInputs(newInputs)
+  }, [inputs, setInputs])
 
   const handleOnDatasetsChange = useCallback((newDatasets: DataSet[]) => {
     const {
@@ -277,6 +314,10 @@ const useConfig = (id: string, payload: KnowledgeRetrievalNodeType) => {
 
   const filterVar = useCallback((varPayload: Var) => {
     return varPayload.type === VarType.string
+  }, [])
+
+  const filterDatasetVar = useCallback((varPayload: Var) => {
+    return [VarType.string, VarType.arrayString, VarType.arrayObject].includes(varPayload.type)
   }, [])
 
   const handleMetadataFilterModeChange = useCallback((newMode: MetadataFilteringModeEnum) => {
@@ -411,6 +452,10 @@ const useConfig = (id: string, payload: KnowledgeRetrievalNodeType) => {
     availableStringNodesWithParent,
     availableNumberVars,
     availableNumberNodesWithParent,
+    handleDatasetSourceModeChange,
+    handleDatasetIdsVarChange,
+    handleAutoMergeConfigsChange,
+    filterDatasetVar,
   }
 }
 
