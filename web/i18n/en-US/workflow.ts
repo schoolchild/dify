@@ -467,6 +467,10 @@ const translation = {
     knowledgeRetrieval: {
       queryVariable: 'Query Variable',
       knowledge: 'Knowledge',
+      manualDatasetSelection: 'Manual Knowledge Selection',
+      variableDatasetSelection: 'Variable Knowledge Selection',
+      datasetVariable: 'Dataset Variable',
+      datasetVariableDesc: 'Select a variable that contains dataset IDs (comma-separated string or array)',
       outputVars: {
         output: 'Retrieval segmented data',
         content: 'Segmented content',
