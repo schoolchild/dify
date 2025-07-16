@@ -6,6 +6,7 @@ import {
 } from 'react'
 import { intersectionBy } from 'lodash-es'
 import { useTranslation } from 'react-i18next'
+import Switch from '@/app/components/base/switch'
 import VarReferencePicker from '../_base/components/variable/var-reference-picker'
 import useConfig from './use-config'
 import RetrievalConfig from './components/retrieval-config'
@@ -17,6 +18,8 @@ import Field from '@/app/components/workflow/nodes/_base/components/field'
 import Split from '@/app/components/workflow/nodes/_base/components/split'
 import OutputVars, { VarItem } from '@/app/components/workflow/nodes/_base/components/output-vars'
 import type { NodePanelProps } from '@/app/components/workflow/types'
+import Tooltip from '@/app/components/base/tooltip'
+import { RiQuestionLine } from '@remixicon/react'
 
 const i18nPrefix = 'workflow.nodes.knowledgeRetrieval'
 
@@ -51,6 +54,10 @@ const Panel: FC<NodePanelProps<KnowledgeRetrievalNodeType>> = ({
     availableStringNodesWithParent,
     availableNumberVars,
     availableNumberNodesWithParent,
+    handleDatasetSourceModeChange,
+    handleDatasetIdsVarChange,
+    handleAutoMergeConfigsChange,
+    filterDatasetVar,
   } = useConfig(id, data)
 
   const handleOpenFromPropsChange = useCallback((openFromProps: boolean) => {
@@ -87,6 +94,31 @@ const Panel: FC<NodePanelProps<KnowledgeRetrievalNodeType>> = ({
           title={t(`${i18nPrefix}.knowledge`)}
           required
           operations={
+            <div className='flex shrink-0 items-center'>
+              <div className='system-xs-medium-uppercase mr-0.5 text-text-tertiary'>
+                {/* {t(`${i18nPrefix}.dynamicsKnowledge`)} */}
+              {inputs.dataset_source_mode === 'manual'
+                ? t(`${i18nPrefix}.manualDatasetSelection`)
+                : t(`${i18nPrefix}.variableDatasetSelection`)
+              }
+              </div>
+              <Tooltip popupContent={
+                <div className='max-w-[150px]'>
+                  {/* {t(`${i18nPrefix}.contextTooltip`)!} */}
+                  {t(`${i18nPrefix}.datasetVariableDesc`)}
+                </div>
+              }>
+                <div>
+                  <RiQuestionLine className='size-3.5 text-text-quaternary' />
+                </div>
+              </Tooltip>
+              <Switch
+                className='ml-2 mr-2'
+                defaultValue={inputs.dataset_source_mode === 'variable'}
+                onChange={checked => handleDatasetSourceModeChange(checked ? 'variable' : 'manual')}
+                size='md'
+                disabled={readOnly}
+              />
             <div className='flex items-center space-x-1'>
               <RetrievalConfig
                 payload={{
@@ -99,26 +131,68 @@ const Panel: FC<NodePanelProps<KnowledgeRetrievalNodeType>> = ({
                 singleRetrievalModelConfig={inputs.single_retrieval_config?.model}
                 onSingleRetrievalModelChange={handleModelChanged as any}
                 onSingleRetrievalModelParamsChange={handleCompletionParamsChange}
-                readonly={readOnly || !selectedDatasets.length}
+                readonly={readOnly || (inputs.dataset_source_mode === 'variable' && inputs.auto_merge_dataset_configs !== false) || (inputs.dataset_source_mode === 'manual' && !selectedDatasets.length)}
                 openFromProps={rerankModelOpen}
                 onOpenFromPropsChange={handleOpenFromPropsChange}
                 selectedDatasets={selectedDatasets}
+                variableMode={inputs.dataset_source_mode === 'variable'}
+                autoMergeConfigs={inputs.auto_merge_dataset_configs !== false}
               />
-              {!readOnly && (<div className='h-3 w-px bg-divider-regular'></div>)}
-              {!readOnly && (
-                <AddKnowledge
-                  selectedIds={inputs.dataset_ids}
-                  onChange={handleOnDatasetsChange}
-                />
+              {inputs.dataset_source_mode === 'variable' && (
+                  <div className='flex items-center space-x-1'>
+                    <div className='h-3 w-px bg-divider-regular'></div>
+                    <div className='system-2xs-medium-uppercase flex h-[18px] items-center rounded-[5px] border border-divider-deep px-1 capitalize text-text-tertiary'>
+                      {inputs.auto_merge_dataset_configs !== false ? 'Auto Config' : 'Manual Config'}
+                    </div>
+                    <Tooltip popupContent={
+                      <div className='max-w-[200px]'>
+                        {t(`${i18nPrefix}.nodes.knowledgeRetrieval.autoMergeTooltip`)}
+                      </div>
+                    }>
+                      <div>
+                        <RiQuestionLine className='size-3.5 text-text-quaternary' />
+                      </div>
+                    </Tooltip>
+                    <Switch
+                      className='ml-1'
+                      defaultValue={inputs.auto_merge_dataset_configs !== false}
+                      onChange={handleAutoMergeConfigsChange}
+                      size='sm'
+                      disabled={readOnly}
+                    />
+                  </div>
+                )}
+                {inputs.dataset_source_mode === 'manual' && !readOnly && (
+                  <>
+                    <div className='h-3 w-px bg-divider-regular'></div>
+                    <AddKnowledge
+                      selectedIds={inputs.dataset_ids}
+                      onChange={handleOnDatasetsChange}
+                    />
+                  </>
               )}
+            </div>
             </div>
           }
         >
-          <DatasetList
-            list={selectedDatasets}
-            onChange={handleOnDatasetsChange}
-            readonly={readOnly}
-          />
+          {(inputs.dataset_source_mode === 'variable')
+            ? (
+              <VarReferencePicker
+              nodeId={id}
+              readonly={readOnly}
+              isShowNodeName
+              value={inputs.dataset_ids_variable_selector || []}
+              onChange={handleDatasetIdsVarChange}
+              filterVar={filterDatasetVar}
+            />
+            )
+            : (
+              <DatasetList
+                list={selectedDatasets}
+                onChange={handleOnDatasetsChange}
+                readonly={readOnly}
+              />
+            )}
         </Field>
       </div>
       <div className='mb-2 py-2'>
