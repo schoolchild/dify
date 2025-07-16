@@ -35,6 +35,8 @@ type Props = {
   openFromProps?: boolean
   onOpenFromPropsChange?: (openFromProps: boolean) => void
   selectedDatasets: DataSet[]
+  variableMode?: boolean
+  autoMergeConfigs?: boolean
 }
 
 const RetrievalConfig: FC<Props> = ({
@@ -48,6 +50,8 @@ const RetrievalConfig: FC<Props> = ({
   openFromProps,
   onOpenFromPropsChange,
   selectedDatasets,
+  variableMode,
+  autoMergeConfigs,
 }) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
