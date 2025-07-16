@@ -125,9 +125,12 @@ class KnowledgeRetrievalNodeData(BaseNodeData):
     type: str = "knowledge-retrieval"
     query_variable_selector: list[str]
     dataset_ids: list[str]
+    dataset_ids_variable_selector: Optional[list[str]] = None
+    dataset_source_mode: Optional[Literal["manual", "variable"]] = "manual"
     retrieval_mode: Literal["single", "multiple"]
     multiple_retrieval_config: Optional[MultipleRetrievalConfig] = None
     single_retrieval_config: Optional[SingleRetrievalConfig] = None
+    auto_merge_dataset_configs: Optional[bool] = True  # Auto merge dataset configs when using variable mode
     metadata_filtering_mode: Optional[Literal["disabled", "automatic", "manual"]] = "disabled"
     metadata_model_config: Optional[ModelConfig] = None
     metadata_filtering_conditions: Optional[MetadataFilteringCondition] = None
